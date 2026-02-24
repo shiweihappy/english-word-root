@@ -176,6 +176,9 @@ def extract_meaning_from_heading(line: str) -> str:
 
 
 def parse_example_line(line: str) -> Optional[Dict[str, str]]:
+    if len(line) > 1200:
+        return None
+
     m = EXAMPLE_HEAD_RE.match(line)
     if not m:
         return None
@@ -195,6 +198,8 @@ def parse_example_line(line: str) -> Optional[Dict[str, str]]:
         decomposition = paren.group(1).strip()
 
     explanation = re.sub(r"\([^)]*\)", "", rest).strip(" .;:")
+    if len(explanation) > 3000:
+        return None
 
     if not explanation and decomposition and "->" in decomposition:
         explanation = decomposition.split("->")[-1].strip()
@@ -204,9 +209,15 @@ def parse_example_line(line: str) -> Optional[Dict[str, str]]:
     if len(word) < 2 or len(explanation) < 1:
         return None
 
+    decomposition = decomposition.replace("+", " + ").replace("  ", " ").strip()
+    if len(decomposition) > 220:
+        decomposition = decomposition[:220].rstrip() + "..."
+    if len(explanation) > 220:
+        explanation = explanation[:220].rstrip() + "..."
+
     return {
         "word": word,
-        "decomposition": decomposition.replace("+", " + ").replace("  ", " ").strip(),
+        "decomposition": decomposition,
         "explanationZh": explanation,
         "rawLine": line,
     }
@@ -266,7 +277,7 @@ def build_entries(raw_text: str) -> Tuple[List[dict], dict]:
             # likely broken heading, skip and let merged lines handle later
             continue
 
-        if re.search(r"常用前缀|常用后缀|词根", line):
+        if re.search(r"常用前缀|常用后缀|词根", line) and len(line) <= 120:
             current_section = line
 
         hm = ROOT_HEADING_RE.match(line)
@@ -289,7 +300,7 @@ def build_entries(raw_text: str) -> Tuple[List[dict], dict]:
                             "type": entry_type,
                             "root": root,
                             "meaningZh": meaning,
-                            "section": current_section,
+                            "section": current_section[:120],
                             "aliases": [r for r in roots if r != root],
                             "examples": [],
                             "tags": pick_tags(meaning),
@@ -325,7 +336,7 @@ def build_entries(raw_text: str) -> Tuple[List[dict], dict]:
                     "type": entry_type,
                     "root": root,
                     "meaningZh": "",
-                    "section": current_section,
+                    "section": current_section[:120],
                     "aliases": [],
                     "examples": [],
                     "tags": [],
@@ -383,7 +394,7 @@ def build_entries(raw_text: str) -> Tuple[List[dict], dict]:
             "type": infer_type(root),
             "root": root,
             "meaningZh": ("自动聚合义项: " + "；".join(meanings)) if meanings else "",
-            "section": current_section,
+            "section": current_section[:120],
             "aliases": [],
             "examples": uniq_ex,
             "tags": [],
@@ -424,6 +435,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--pdf", default="XDF.pdf", help="Path to source PDF")
     parser.add_argument("--out", default="public/data/roots.json", help="Output JSON path")
+    parser.add_argument("--include-raw-line", action="store_true", help="Keep examples[].rawLine in output")
     args = parser.parse_args()
 
     pdf_path = Path(args.pdf)
@@ -438,12 +450,19 @@ def main() -> None:
             "generatedAt": dt.datetime.now(dt.timezone.utc).isoformat(),
             "entryCount": meta["entryCount"],
             "exampleCount": meta["exampleCount"],
+            "compact": True,
+            "includesRawLine": bool(args.include_raw_line),
         },
         "entries": entries,
     }
 
+    if not args.include_raw_line:
+        for entry in payload["entries"]:
+            for ex in entry["examples"]:
+                ex.pop("rawLine", None)
+
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    out_path.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
 
     print(f"Wrote {out_path} with {meta['entryCount']} entries and {meta['exampleCount']} examples")
 
