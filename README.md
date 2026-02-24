@@ -1,5 +1,6 @@
 # english-word-root
 英语词根词缀学习
+在线体验：https://shiweihappy.github.io/english-word-root/
 
 基于 `XDF.pdf` 的本地离线学习工具，包含：
 
